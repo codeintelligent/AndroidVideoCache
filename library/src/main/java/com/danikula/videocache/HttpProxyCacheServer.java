@@ -14,12 +14,15 @@ import com.danikula.videocache.sourcestorage.SourceInfoStorageFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
+import java.net.URL;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -146,6 +149,33 @@ public class HttpProxyCacheServer {
         synchronized (clientsLock) {
             for (HttpProxyCacheServerClients clients : clientsMap.values()) {
                 clients.unregisterCacheListener(cacheListener);
+            }
+        }
+    }
+
+    /**
+     * Pre fetch the url into the cache.
+     * @param url The url to fetch
+     * @throws IOException
+     */
+    public void fetch(String url) throws IOException, ProxyCacheException {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        InputStream is = null;
+        try {
+            URL fetchUrl = new URL(getProxyUrl(url));
+            is = fetchUrl.openStream();
+            byte[] byteChunk = new byte[4096]; // Or whatever size you want to read in at a time.
+            int n;
+
+            while ((n = is.read(byteChunk)) > 0) {
+                baos.write(byteChunk, 0, n);
+            }
+        } catch (Exception e) {
+            LOG.warn(String.format("Failed while reading bytes from %s: %s", url, e.getMessage()));
+            throw new ProxyCacheException(String.format("Failed while reading bytes from %s", url), e);
+        } finally {
+            if (is != null) {
+                is.close();
             }
         }
     }
