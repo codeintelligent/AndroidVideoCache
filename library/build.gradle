@@ -3,7 +3,7 @@ buildscript {
         jcenter()
     }
     dependencies {
-        classpath 'com.novoda:bintray-release:0.3.4'
+        classpath 'com.novoda:bintray-release:0.3.5'
     }
 }
 
@@ -12,14 +12,14 @@ apply plugin: 'java'
 apply plugin: 'bintray-release'
 
 idea {
+    targetCompatibility = '1.7'
+    sourceCompatibility = '1.7'
+
     module {
         downloadJavadoc = true
         downloadSources = true
     }
 }
-
-targetCompatibility = '1.7'
-sourceCompatibility = '1.7'
 
 dependencies {
     compile 'com.google.android:android:1.6_r2'
@@ -27,10 +27,15 @@ dependencies {
 }
 
 publish {
-    userOrg = 'alexeydanilov'
-    groupId = 'com.danikula'
+    Properties properties = new Properties()
+    properties.load(project.rootProject.file('local.properties').newDataInputStream())
+    userOrg = properties.getProperty("bintray.userOrg")
+    groupId = properties.getProperty("bintray.groupId")
     artifactId = 'videocache'
     publishVersion = '2.6.3'
     description = 'Cache support for android VideoView'
-    website = 'https://github.com/danikula/AndroidVideoCache'
+    website = properties.getProperty("bintray.website")
+    bintrayUser = properties.getProperty("bintray.user")
+    bintrayKey = properties.getProperty("bintray.apikey")
+    dryRun = false
 }
