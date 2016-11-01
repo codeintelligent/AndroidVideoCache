@@ -32,7 +32,7 @@ publish {
     userOrg = properties.getProperty("bintray.userOrg")
     groupId = properties.getProperty("bintray.groupId")
     artifactId = 'videocache'
-    publishVersion = '2.6.3'
+    publishVersion = '2.6.4'
     description = 'Cache support for android VideoView'
     website = properties.getProperty("bintray.website")
     bintrayUser = properties.getProperty("bintray.user")
