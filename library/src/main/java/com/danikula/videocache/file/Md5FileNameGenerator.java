@@ -12,8 +12,6 @@ import com.danikula.videocache.ProxyCacheUtils;
  */
 public class Md5FileNameGenerator implements FileNameGenerator {
 
-    private static final int MAX_EXTENSION_LENGTH = 4;
-
     @Override
     public String generate(String url) {
         String extension = getExtension(url);
