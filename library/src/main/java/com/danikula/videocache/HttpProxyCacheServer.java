@@ -8,18 +8,23 @@ import com.danikula.videocache.file.FileNameGenerator;
 import com.danikula.videocache.file.Md5FileNameGenerator;
 import com.danikula.videocache.file.TotalCountLruDiskUsage;
 import com.danikula.videocache.file.TotalSizeLruDiskUsage;
+import com.danikula.videocache.headers.EmptyHeadersInjector;
+import com.danikula.videocache.headers.HeaderInjector;
 import com.danikula.videocache.sourcestorage.SourceInfoStorage;
 import com.danikula.videocache.sourcestorage.SourceInfoStorageFactory;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
+import java.net.URL;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -73,6 +78,7 @@ public class HttpProxyCacheServer {
             InetAddress inetAddress = InetAddress.getByName(PROXY_HOST);
             this.serverSocket = new ServerSocket(0, 8, inetAddress);
             this.port = serverSocket.getLocalPort();
+            IgnoreHostProxySelector.install(PROXY_HOST, port);
             CountDownLatch startSignal = new CountDownLatch(1);
             this.waitConnectionThread = new Thread(new WaitRequestsRunnable(startSignal));
             this.waitConnectionThread.start();
@@ -146,6 +152,33 @@ public class HttpProxyCacheServer {
         synchronized (clientsLock) {
             for (HttpProxyCacheServerClients clients : clientsMap.values()) {
                 clients.unregisterCacheListener(cacheListener);
+            }
+        }
+    }
+
+    /**
+     * Pre fetch the url into the cache.
+     * @param url The url to fetch
+     * @throws IOException
+     */
+    public void fetch(String url) throws IOException, ProxyCacheException {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        InputStream is = null;
+        try {
+            URL fetchUrl = new URL(getProxyUrl(url));
+            is = fetchUrl.openStream();
+            byte[] byteChunk = new byte[4096]; // Or whatever size you want to read in at a time.
+            int n;
+
+            while ((n = is.read(byteChunk)) > 0) {
+                baos.write(byteChunk, 0, n);
+            }
+        } catch (Exception e) {
+            LOG.warn(String.format("Failed while reading bytes from %s: %s", url, e.getMessage()));
+            throw new ProxyCacheException(String.format("Failed while reading bytes from %s", url), e);
+        } finally {
+            if (is != null) {
+                is.close();
             }
         }
     }
@@ -349,12 +382,14 @@ public class HttpProxyCacheServer {
         private FileNameGenerator fileNameGenerator;
         private DiskUsage diskUsage;
         private SourceInfoStorage sourceInfoStorage;
+        private HeaderInjector headerInjector;
 
         public Builder(Context context) {
             this.sourceInfoStorage = SourceInfoStorageFactory.newSourceInfoStorage(context);
             this.cacheRoot = StorageUtils.getIndividualCacheDirectory(context);
             this.diskUsage = new TotalSizeLruDiskUsage(DEFAULT_MAX_SIZE);
             this.fileNameGenerator = new Md5FileNameGenerator();
+            this.headerInjector = new EmptyHeadersInjector();
         }
 
         /**
@@ -415,6 +450,28 @@ public class HttpProxyCacheServer {
         }
 
         /**
+         * Set custom DiskUsage logic for handling when to keep or clean cache.
+         *
+         * @param diskUsage a disk usage strategy, cant be {@code null}.
+         * @return a builder.
+         */
+        public Builder diskUsage(DiskUsage diskUsage) {
+            this.diskUsage = checkNotNull(diskUsage);
+            return this;
+        }
+
+        /**
+         * Add headers along the request to the server
+         *
+         * @param headerInjector to inject header base on url
+         * @return a builder
+         */
+        public Builder headerInjector(HeaderInjector headerInjector) {
+            this.headerInjector = checkNotNull(headerInjector);
+            return this;
+        }
+
+        /**
          * Builds new instance of {@link HttpProxyCacheServer}.
          *
          * @return proxy cache. Only single instance should be used across whole app.
@@ -425,7 +482,7 @@ public class HttpProxyCacheServer {
         }
 
         private Config buildConfig() {
-            return new Config(cacheRoot, fileNameGenerator, diskUsage, sourceInfoStorage);
+            return new Config(cacheRoot, fileNameGenerator, diskUsage, sourceInfoStorage, headerInjector);
         }
 
     }

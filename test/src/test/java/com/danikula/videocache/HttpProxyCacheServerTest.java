@@ -6,11 +6,13 @@ import android.util.Pair;
 import com.danikula.android.garden.io.IoUtils;
 import com.danikula.videocache.file.FileNameGenerator;
 import com.danikula.videocache.file.Md5FileNameGenerator;
+import com.danikula.videocache.headers.HeaderInjector;
 import com.danikula.videocache.support.ProxyCacheTestUtils;
 import com.danikula.videocache.support.Response;
 
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
 import org.robolectric.RuntimeEnvironment;
 
 import java.io.File;
@@ -31,9 +33,13 @@ import static com.danikula.videocache.support.ProxyCacheTestUtils.HTTP_DATA_URL_
 import static com.danikula.videocache.support.ProxyCacheTestUtils.HTTP_DATA_URL_ONE_REDIRECT;
 import static com.danikula.videocache.support.ProxyCacheTestUtils.getFileContent;
 import static com.danikula.videocache.support.ProxyCacheTestUtils.getPort;
+import static com.danikula.videocache.support.ProxyCacheTestUtils.installExternalSystemProxy;
 import static com.danikula.videocache.support.ProxyCacheTestUtils.loadAssetFile;
 import static com.danikula.videocache.support.ProxyCacheTestUtils.readProxyResponse;
+import static com.danikula.videocache.support.ProxyCacheTestUtils.resetSystemProxy;
 import static org.fest.assertions.api.Assertions.assertThat;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 /**
  * @author Alexey Danilov (danikula@gmail.com).
@@ -47,6 +53,7 @@ public class HttpProxyCacheServerTest extends BaseTest {
         cacheFolder = ProxyCacheTestUtils.newCacheFile();
         createDirectory(cacheFolder);
         cleanDirectory(cacheFolder);
+        resetSystemProxy();
     }
 
     @Test
@@ -296,6 +303,81 @@ public class HttpProxyCacheServerTest extends BaseTest {
         proxy.shutdown();
     }
 
+    @Test
+    public void testTrimFileCacheForTotalCountLru() throws Exception {
+        FileNameGenerator fileNameGenerator = new Md5FileNameGenerator();
+        HttpProxyCacheServer proxy = new HttpProxyCacheServer.Builder(RuntimeEnvironment.application)
+                .cacheDirectory(cacheFolder)
+                .fileNameGenerator(fileNameGenerator)
+                .maxCacheFilesCount(2)
+                .build();
+        readProxyResponse(proxy, proxy.getProxyUrl(HTTP_DATA_URL), 0);
+        assertThat(new File(cacheFolder, fileNameGenerator.generate(HTTP_DATA_URL))).exists();
+
+        readProxyResponse(proxy, proxy.getProxyUrl(HTTP_DATA_URL_ONE_REDIRECT), 0);
+        assertThat(new File(cacheFolder, fileNameGenerator.generate(HTTP_DATA_URL_ONE_REDIRECT))).exists();
+
+        readProxyResponse(proxy, proxy.getProxyUrl(HTTP_DATA_URL_3_REDIRECTS), 0);
+        assertThat(new File(cacheFolder, fileNameGenerator.generate(HTTP_DATA_URL_3_REDIRECTS))).exists();
+
+        waitForAsyncTrimming();
+        assertThat(new File(cacheFolder, fileNameGenerator.generate(HTTP_DATA_URL))).doesNotExist();
+    }
+
+    @Test
+    public void testTrimFileCacheForTotalSizeLru() throws Exception {
+        FileNameGenerator fileNameGenerator = new Md5FileNameGenerator();
+        HttpProxyCacheServer proxy = new HttpProxyCacheServer.Builder(RuntimeEnvironment.application)
+                .cacheDirectory(cacheFolder)
+                .fileNameGenerator(fileNameGenerator)
+                .maxCacheSize(HTTP_DATA_SIZE * 3 - 1)
+                .build();
+        readProxyResponse(proxy, proxy.getProxyUrl(HTTP_DATA_URL), 0);
+        assertThat(new File(cacheFolder, fileNameGenerator.generate(HTTP_DATA_URL))).exists();
+
+        readProxyResponse(proxy, proxy.getProxyUrl(HTTP_DATA_URL_ONE_REDIRECT), 0);
+        assertThat(new File(cacheFolder, fileNameGenerator.generate(HTTP_DATA_URL_ONE_REDIRECT))).exists();
+
+        readProxyResponse(proxy, proxy.getProxyUrl(HTTP_DATA_URL_3_REDIRECTS), 0);
+        assertThat(new File(cacheFolder, fileNameGenerator.generate(HTTP_DATA_URL_3_REDIRECTS))).exists();
+
+        waitForAsyncTrimming();
+        assertThat(new File(cacheFolder, fileNameGenerator.generate(HTTP_DATA_URL))).doesNotExist();
+    }
+
+    @Test // https://github.com/danikula/AndroidVideoCache/issues/28
+    public void testWorkWithExternalProxy() throws Exception {
+        installExternalSystemProxy();
+
+        Pair<File, Response> response = readProxyData(HTTP_DATA_URL, 0);
+        assertThat(response.second.data).isEqualTo(loadAssetFile(ASSETS_DATA_NAME));
+    }
+
+    @Test // https://github.com/danikula/AndroidVideoCache/issues/28
+    public void testDoesNotWorkWithoutCustomProxySelector() throws Exception {
+        HttpProxyCacheServer httpProxyCacheServer = new HttpProxyCacheServer(RuntimeEnvironment.application);
+        // IgnoreHostProxySelector is set in HttpProxyCacheServer constructor. So let reset it by custom.
+        installExternalSystemProxy();
+
+        String proxiedUrl = httpProxyCacheServer.getProxyUrl(HTTP_DATA_URL);
+        // server can't proxy this url due to it is not alive (can't ping itself), so it returns original url
+        assertThat(proxiedUrl).isEqualTo(HTTP_DATA_URL);
+    }
+
+    @Test
+    public void testHeadersInjectorIsInvoked() throws Exception {
+        HeaderInjector mockedHeaderInjector = Mockito.mock(HeaderInjector.class);
+
+        HttpProxyCacheServer proxy = new HttpProxyCacheServer.Builder(RuntimeEnvironment.application)
+                .headerInjector(mockedHeaderInjector)
+                .build();
+
+        readProxyResponse(proxy, HTTP_DATA_URL);
+        proxy.shutdown();
+
+        verify(mockedHeaderInjector, times(2)).addHeaders(HTTP_DATA_URL);   // content info & fetch data requests
+    }
+
     private Pair<File, Response> readProxyData(String url, int offset) throws IOException {
         File file = file(cacheFolder, url);
         HttpProxyCacheServer proxy = newProxy(cacheFolder);
@@ -320,5 +402,9 @@ public class HttpProxyCacheServerTest extends BaseTest {
         return new HttpProxyCacheServer.Builder(RuntimeEnvironment.application)
                 .cacheDirectory(cacheDir)
                 .build();
+    }
+
+    private void waitForAsyncTrimming() throws InterruptedException {
+        Thread.sleep(500);
     }
 }

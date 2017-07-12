@@ -9,6 +9,8 @@
   - [Disk cache limit](#disk-cache-limit)
   - [Listen caching progress](#listen-caching-progress)
   - [Providing names for cached files](#providing-names-for-cached-files)
+  - [Adding custom http headers](#adding-custom-http-headers)
+  - [Using exoPlayer](#using-exoplayer)
   - [Sample](#sample)
 - [Known problems](#known-problems)
 - [Whats new](#whats-new)
@@ -19,7 +21,7 @@
 
 ## Why AndroidVideoCache?
 Because there is no sense to download video a lot of times while streaming!
-`AndroidVideoCache` allows to add caching support to your `VideoView/MediaPlayer`, [ExoPlayer](https://github.com/danikula/ExoPlayer/commit/6110be8559f003f98020ada8c5e09691b67aaff4) or any another player with help of single line!
+`AndroidVideoCache` allows to add caching support to your `VideoView/MediaPlayer`, [ExoPlayer](https://github.com/danikula/AndroidVideoCache/tree/exoPlayer) or any another player with help of single line!
 
 ## Features
 - caching to disk during streaming;
@@ -34,7 +36,7 @@ Note `AndroidVideoCache` works only with **direct urls** to media file, it  [**d
 Just add dependency (`AndroidVideoCache` is available in jcenter):
 ```
 dependencies {
-    compile 'com.danikula:videocache:2.6.4'
+    compile 'com.danikula:videocache:2.7.0'
 }
 ```
 
@@ -99,6 +101,16 @@ private HttpProxyCacheServer newProxy() {
 }
 ```
 
+or even implement your own `DiskUsage` strategy:
+```java
+private HttpProxyCacheServer newProxy() {
+    return new HttpProxyCacheServer.Builder(this)
+            .diskUsage(new MyCoolDiskUsageStrategy())
+            .build();
+}
+```
+
+
 ### Listen caching progress
 Use `HttpProxyCacheServer.registerCacheListener(CacheListener listener)` method to set listener with callback `onCacheAvailable(File cacheFile, String url, int percentsAvailable)` to be aware of caching progress. Do not forget to to unsubscribe listener with help of `HttpProxyCacheServer.unregisterCacheListener(CacheListener listener)` method to avoid memory leaks.
 
@@ -126,11 +138,33 @@ HttpProxyCacheServer proxy = HttpProxyCacheServer.Builder(context)
     .build()
 ```
 
+### Adding custom http headers
+You can add custom headers to requests with help of `HeadersInjector`:
+``` java
+public class UserAgentHeadersInjector implements HeaderInjector {
+
+    @Override
+    public Map<String, String> addHeaders(String url) {
+        return Maps.newHashMap("User-Agent", "Cool app v1.1");
+    }
+}
+
+private HttpProxyCacheServer newProxy() {
+    return new HttpProxyCacheServer.Builder(this)
+            .headerInjector(new UserAgentHeadersInjector())
+            .build();
+}
+
+```
+
+### Using exoPlayer
+You can use [`exoPlayer`](https://google.github.io/ExoPlayer/) with `AndroidVideoCache`. See `sample` app in [`exoPlayer`](https://github.com/danikula/AndroidVideoCache/tree/exoPlayer) branch. Note [exoPlayer supports](https://github.com/google/ExoPlayer/commit/bd7be1b5e7cc41a59ebbc348d394820fc857db92) cache as well.  
+
 ### Sample
 See `sample` app.
 
 ## Known problems
-`AndroidVideoCache` [doesn't work](https://github.com/danikula/AndroidVideoCache/issues/28) if wifi or mobile internet connection uses proxy.
+- In some cases clients [can't connect](https://github.com/danikula/AndroidVideoCache/issues/134) to local proxy server ('Error pinging server' error). May be it is result of previous error. Note in this case video will be played, but without caching.
 
 ## Whats new
 See Release Notes [here](https://github.com/danikula/AndroidVideoCache/releases)
@@ -154,7 +188,7 @@ If it's a feature that you think would need to be discussed please open an issue
 
 ## License
 
-    Copyright 2014-2016 Alexey Danilov
+    Copyright 2014-2017 Alexey Danilov
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.

@@ -41,7 +41,7 @@ public class FileCache implements Cache {
     }
 
     @Override
-    public synchronized int available() throws ProxyCacheException {
+    public synchronized long available() throws ProxyCacheException {
         try {
             return (int) dataFile.length();
         } catch (IOException e) {
@@ -100,6 +100,7 @@ public class FileCache implements Cache {
         file = completedFile;
         try {
             dataFile = new RandomAccessFile(file, "r");
+            diskUsage.touch(file);
         } catch (IOException e) {
             throw new ProxyCacheException("Error opening " + file + " as disc cache", e);
         }
